@@ -57,8 +57,30 @@ function ContentDisplay({ content, isLoading, onSave, onRegenerate, settings }) 
     setShowSaveForm(false);
   };
 
-  const handleExportMarkdown = () => {
+  const handleExportMarkdown = async () => {
     const blob = new Blob([content.content], { type: 'text/markdown' });
+
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'generated-content.md',
+          types: [
+            {
+              description: 'Markdown document',
+              accept: { 'text/markdown': ['.md'] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(await blob.arrayBuffer());
+        await writable.close();
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        console.error('Save dialog failed:', err);
+      }
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
