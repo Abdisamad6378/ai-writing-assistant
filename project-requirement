@@ -1,0 +1,10 @@
+Project Requirements
+Core Features (Required)
+
+    Content Generation -- Generate blog posts, emails, and social media posts from a topic/brief
+    Tone Selection -- Users choose from at least three tones: formal, casual, persuasive
+    Length Control -- Users select short, medium, or long output
+    Regenerate -- Users can regenerate content with the same or different settings
+    Conversation History -- Multi-turn interaction where users can refine content with follow-up messages
+    Save Drafts -- Save generated content to a database for later access
+
