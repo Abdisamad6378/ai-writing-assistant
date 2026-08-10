@@ -5,46 +5,14 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const { generateResponse } = require('./llm');
 const { getSystemPrompt, buildGenerationPrompt, LENGTH_CONFIG } = require('./prompts');
+const db = require('./db');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// In-memory storage
-const drafts = new Map();
+// In-memory conversation storage (drafts are persisted in PostgreSQL via db.js)
 const conversations = new Map();
-
-const now = () => new Date().toISOString();
-
-const insertDraft = (id, title, content, contentType, tone, topic, provider, model, tokensUsed) => {
-  drafts.set(id, {
-    id,
-    title,
-    content,
-    content_type: contentType,
-    tone,
-    topic,
-    provider,
-    model,
-    tokens_used: tokensUsed,
-    created_at: now(),
-    updated_at: now(),
-  });
-};
-
-const getDrafts = () =>
-  [...drafts.values()].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-
-const getDraftById = (id) => drafts.get(id) || null;
-
-const updateDraft = (content, id) => {
-  const draft = drafts.get(id);
-  if (!draft) return;
-  draft.content = content;
-  draft.updated_at = now();
-};
-
-const deleteDraft = (id) => drafts.delete(id);
 
 const insertConversation = (id, draftId) => conversations.set(id, []);
 
@@ -178,7 +146,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // Save draft
-app.post('/api/drafts', (req, res) => {
+app.post('/api/drafts', async (req, res) => {
   try {
     const { title, content, contentType, tone, topic, provider, model, tokensUsed } = req.body;
 
@@ -187,17 +155,17 @@ app.post('/api/drafts', (req, res) => {
     }
 
     const id = uuidv4();
-    insertDraft(
+    await db.insertDraft({
       id,
       title,
       content,
-      contentType || 'blog',
-      tone || 'casual',
-      topic || '',
-      provider || null,
-      model || null,
-      tokensUsed || 0
-    );
+      contentType: contentType || 'blog',
+      tone: tone || 'casual',
+      topic: topic || '',
+      provider: provider || null,
+      model: model || null,
+      tokensUsed: tokensUsed || 0,
+    });
 
     res.status(201).json({
       id,
@@ -210,9 +178,9 @@ app.post('/api/drafts', (req, res) => {
 });
 
 // Get all drafts
-app.get('/api/drafts', (req, res) => {
+app.get('/api/drafts', async (req, res) => {
   try {
-    res.json({ drafts: getDrafts() });
+    res.json({ drafts: await db.getDrafts() });
   } catch (error) {
     console.error('Fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch drafts.' });
@@ -220,9 +188,9 @@ app.get('/api/drafts', (req, res) => {
 });
 
 // Get single draft
-app.get('/api/drafts/:id', (req, res) => {
+app.get('/api/drafts/:id', async (req, res) => {
   try {
-    const draft = getDraftById(req.params.id);
+    const draft = await db.getDraftById(req.params.id);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found.' });
     }
@@ -234,19 +202,18 @@ app.get('/api/drafts/:id', (req, res) => {
 });
 
 // Update draft content
-app.patch('/api/drafts/:id', (req, res) => {
+app.patch('/api/drafts/:id', async (req, res) => {
   try {
     const { content } = req.body;
     if (!content) {
       return res.status(400).json({ error: 'Content is required.' });
     }
 
-    const draft = getDraftById(req.params.id);
+    const draft = await db.updateDraft(req.params.id, content);
     if (!draft) {
       return res.status(404).json({ error: 'Draft not found.' });
     }
 
-    updateDraft(content, req.params.id);
     res.json({ message: 'Draft updated successfully.' });
   } catch (error) {
     console.error('Update error:', error);
@@ -255,14 +222,13 @@ app.patch('/api/drafts/:id', (req, res) => {
 });
 
 // Delete draft
-app.delete('/api/drafts/:id', (req, res) => {
+app.delete('/api/drafts/:id', async (req, res) => {
   try {
-    const draft = getDraftById(req.params.id);
-    if (!draft) {
+    const deleted = await db.deleteDraft(req.params.id);
+    if (!deleted) {
       return res.status(404).json({ error: 'Draft not found.' });
     }
 
-    deleteDraft(req.params.id);
     res.json({ message: 'Draft deleted successfully.' });
   } catch (error) {
     console.error('Delete error:', error);
@@ -271,6 +237,13 @@ app.delete('/api/drafts/:id', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`AI Writing Assistant API running on http://localhost:${PORT}`);
-});
+db.initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`AI Writing Assistant API running on http://localhost:${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
+  });

@@ -17,6 +17,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "openai": "^7.4.0",
+    "pg": "^8.23.0",
     "uuid": "^14.0.1"
   },
   "devDependencies": {
