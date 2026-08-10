@@ -9,6 +9,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('generate');
   const [generatedContent, setGeneratedContent] = useState(null);
   const [conversationId, setConversationId] = useState(null);
+  const [settings, setSettings] = useState({ contentType: 'blog', tone: 'casual', length: 'medium' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -31,6 +32,36 @@ function App() {
       const data = await response.json();
       setGeneratedContent(data);
       setConversationId(data.conversationId);
+      if (data.settings) setSettings(data.settings);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegenerate = async (overrides) => {
+    if (!conversationId) return;
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const merged = { ...settings, ...overrides };
+      const response = await fetch('http://localhost:3001/api/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId, ...merged }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Regeneration failed');
+      }
+
+      const data = await response.json();
+      setGeneratedContent(data);
+      setConversationId(data.conversationId);
+      if (data.settings) setSettings(data.settings);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -175,6 +206,8 @@ function App() {
                 content={generatedContent}
                 isLoading={isLoading}
                 onSave={handleSaveDraft}
+                onRegenerate={handleRegenerate}
+                settings={settings}
               />
             </div>
           </div>

@@ -1,9 +1,18 @@
 // client/src/components/ContentDisplay.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-function ContentDisplay({ content, isLoading, onSave }) {
+function ContentDisplay({ content, isLoading, onSave, onRegenerate, settings }) {
   const [draftTitle, setDraftTitle] = useState('');
   const [showSaveForm, setShowSaveForm] = useState(false);
+  const [regenTone, setRegenTone] = useState(settings?.tone || 'casual');
+  const [regenLength, setRegenLength] = useState(settings?.length || 'medium');
+
+  useEffect(() => {
+    if (settings) {
+      setRegenTone(settings.tone || 'casual');
+      setRegenLength(settings.length || 'medium');
+    }
+  }, [settings]);
 
   if (isLoading) {
     return (
@@ -90,6 +99,33 @@ function ContentDisplay({ content, isLoading, onSave }) {
         >
           Save Draft
         </button>
+        <button
+          onClick={() => onRegenerate({ tone: regenTone, length: regenLength })}
+          disabled={!onRegenerate}
+          className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          Regenerate
+        </button>
+        <select
+          value={regenTone}
+          onChange={(e) => setRegenTone(e.target.value)}
+          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 shadow-sm"
+          aria-label="Regenerate tone"
+        >
+          <option value="formal">Formal</option>
+          <option value="casual">Casual</option>
+          <option value="persuasive">Persuasive</option>
+        </select>
+        <select
+          value={regenLength}
+          onChange={(e) => setRegenLength(e.target.value)}
+          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-700 shadow-sm"
+          aria-label="Regenerate length"
+        >
+          <option value="short">Short</option>
+          <option value="medium">Medium</option>
+          <option value="long">Long</option>
+        </select>
         <button onClick={handleExportMarkdown} className={actionButtonClasses}>
           Export Markdown
         </button>

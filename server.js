@@ -14,14 +14,18 @@ app.use(express.json());
 // In-memory conversation storage (drafts are persisted in PostgreSQL via db.js)
 const conversations = new Map();
 
-const insertConversation = (id, draftId) => conversations.set(id, []);
+const insertConversation = (id, meta) => conversations.set(id, { meta, messages: [] });
 
 const insertMessage = (conversationId, role, content) => {
-  if (!conversations.has(conversationId)) conversations.set(conversationId, []);
-  conversations.get(conversationId).push({ role, content });
+  if (!conversations.has(conversationId)) insertConversation(conversationId, null);
+  conversations.get(conversationId).messages.push({ role, content });
 };
 
-const getConversationMessages = (conversationId) => conversations.get(conversationId) || [];
+const getConversationMessages = (conversationId) =>
+  (conversations.get(conversationId) || { messages: [] }).messages;
+
+const getConversationMeta = (conversationId) =>
+  conversations.get(conversationId)?.meta || null;
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -78,7 +82,12 @@ app.post('/api/generate', async (req, res) => {
 
     // Create a conversation for this generation
     const conversationId = uuidv4();
-    insertConversation(conversationId, null);
+    insertConversation(conversationId, {
+      topic,
+      contentType,
+      tone,
+      length,
+    });
     insertMessage(conversationId, 'user', userPrompt);
     insertMessage(conversationId, 'assistant', response.text);
 
@@ -89,6 +98,7 @@ app.post('/api/generate', async (req, res) => {
       model: response.model,
       usage: response.usage,
       finished: response.finished,
+      settings: { contentType, tone, length },
     });
   } catch (error) {
     console.error('Generation error:', error);
@@ -142,6 +152,86 @@ app.post('/api/chat', async (req, res) => {
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json({ error: 'Failed to process message. Please try again.' });
+  }
+});
+
+// Regenerate content with the same or different settings
+app.post('/api/regenerate', async (req, res) => {
+  try {
+    const {
+      conversationId,
+      topic,
+      contentType = 'blog',
+      tone = 'casual',
+      length = 'medium',
+      provider,
+    } = req.body;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required.' });
+    }
+
+    const meta = getConversationMeta(conversationId);
+    if (!meta) {
+      return res.status(404).json({ error: 'Conversation not found.' });
+    }
+
+    const settings = {
+      topic: topic || meta.topic,
+      contentType: contentType || meta.contentType,
+      tone: tone || meta.tone,
+      length: length || meta.length,
+    };
+
+    const validTypes = ['blog', 'email', 'social', 'academic'];
+    if (!validTypes.includes(settings.contentType)) {
+      return res.status(400).json({
+        error: `Invalid content type. Use: ${validTypes.join(', ')}`,
+      });
+    }
+
+    const validTones = ['formal', 'casual', 'persuasive'];
+    if (!validTones.includes(settings.tone)) {
+      return res.status(400).json({
+        error: `Invalid tone. Use: ${validTones.join(', ')}`,
+      });
+    }
+
+    const validLengths = ['short', 'medium', 'long'];
+    if (!validLengths.includes(settings.length)) {
+      return res.status(400).json({
+        error: `Invalid length. Use: ${validLengths.join(', ')}`,
+      });
+    }
+
+    const systemPrompt = getSystemPrompt(settings.contentType, settings.tone);
+    const userPrompt = buildGenerationPrompt(settings.topic, settings.contentType, settings.tone, settings.length);
+    const lengthConfig = LENGTH_CONFIG[settings.length];
+
+    const response = await generateResponse({
+      provider,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+      temperature: 0.7,
+      maxTokens: lengthConfig.maxTokens,
+    });
+
+    // Refresh the conversation context with the new generation
+    insertMessage(conversationId, 'user', `Regenerate with ${settings.tone} tone, ${settings.length} length.`);
+    insertMessage(conversationId, 'assistant', response.text);
+
+    res.json({
+      content: response.text,
+      conversationId,
+      provider: response.provider,
+      model: response.model,
+      usage: response.usage,
+      finished: response.finished,
+      settings: { contentType: settings.contentType, tone: settings.tone, length: settings.length },
+    });
+  } catch (error) {
+    console.error('Regenerate error:', error);
+    res.status(500).json({ error: 'Failed to regenerate content. Please try again.' });
   }
 });
 
